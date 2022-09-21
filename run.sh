@@ -1,3 +1,4 @@
 #!/bin/sh
 
-swipl -s kbs.pl -g kbs_main -t halt
+#whey can work like kbs_main(args..)
+swipl -s kbs.pl -g kbs_main -t halt -- $@
