@@ -69,20 +69,27 @@ Knowlege Base System
 Как создовать заметки
 	- создает запись в хранилище и ссылку с именем name
 cd a/b/.../
-kbs here <name> 
+kbs here <path> - запускает эдитор
+1kbs safe <file> - сохраняет в системе фаил
+	- востановить фаил из базы
+kbs restore <link> - востанавлевает и удаляет
+2kbs clone <link>
+3kbs del <link> - удаляеть из системы
 	- копировать и перенести запись по структуре
 cp
 mv
-	- удалить запись
-kbs rm <link name>
 	- востановить ссылку тк ссылка имеет абсолютный путь на фаил при переносе его она ломаеться
-kbs relink <link name>
+4kbs relink <link name>
 	- связать фаил с заметкой - поместить его в один католог с оной
 	- создать отношение с файлом (a,b: link or file)
-kbs rel -<name0> [.. -<nameN>] a [b]
+5kbs rel -<name0> [.. -<nameN>] a [b]
 kbs deep a b 	-> like kbs rel -deep a b
 kbs cons a b 	--
 kbs part a b 	<-
-	- востановить фаил из базы
-kbs restore <link>
-kbs clone <link>
+	- посмотреть схему отношений
+6kbs about <link> - посмотреть отношения этого обьекта
+kbs trace
+	- посмотреть структурную схему (как tree)
+7kbs tree [<root>]
+	- запустить repl prolog
+0kbs repl
