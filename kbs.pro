@@ -17,7 +17,7 @@ params_parse(Arg, Pam) :- split_string(Arg, "=", "-", Pam).
 cli_parse(Args, Ppams, Data) :- args_sep(Args, Pams, Data), maplist(params_parse, Pams, Ppams).
 
 %subs for commands
-pwd(P) :- getenv("PWD", CD), string_concat(CD, "/", P).
+pwd(P) :- working_directory(P, P).
 app_root(Root, Path, Apath) :- string_concat(Root, Path, Apath).
 res_root(Path,Apath) :- myconfig(res_path,R), app_root(R, Path, Apath).
 getsid(Link, Sid) :- read_link(Link, Path, _), file_base_name(Path, Sid).
