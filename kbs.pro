@@ -67,24 +67,38 @@ rel_templ(Rel, Atoms, Out) :- string_join(Atoms, ", ", As), string_append([Rel, 
 rel_pam_conv([], []).
 rel_pam_conv([[P|T]|Pams], Rels) :-  rel_pam_conv(Pams, Out),(T == [], Rels = [P|Out] ; Rels = Out). 
 
+info(Pred, Fact) :- current_predicate(FactName/1), Fact =.. [FactName,Pred], call(Fact).
+info_all(Pred, Facts) :- findall(F, info(Pred, F), Facts).
+
+% safe data
+res_safe(Spec, File) :- get_time(Time),round(Time,Utime), res_root(Sid, Path),
+	exists_file(File),copy_file(File, Sid),delete_file(File),link_file(Path, File, symbolic).
+
 % commands of program
 cmds(repl, _, _) :- prolog.
-cmds(safe, [File|_], _) :- get_time(Time),round(Time,Utime), res_root(Utime, Sid),
-	exists_file(File),copy_file(File, Sid),delete_file(File),link_file(Sid, File, symbolic).
+cmds(res, Files, _).
 cmds(clone, [Link|[Clone|_]], _) :- read_link(Link, File, _), copy_file(File, Clone).
 cmds(clone, [Link|[]], _) :- file_base_name(Link, Name), cmds(clone, [Link, Name]).
 cmds(del, [Link|_], _) :- delete_file(Link).
 cmds(relink, [Link|_], _) :- getsid(Link, Sid), res_root(Sid, Sidloc),
 	delete_file(Link),link_file(Sidloc, Link, symbolic).
+cmds(rel, [], Pams) :- myconfig(rel_path, Rel),string_append([Rel, "res.pl"], Rf),
+	rel_pam_conv(Pams, Terms), [Rf], maplist(listing, Terms).
 cmds(rel, Links, Pams) :- rel_pam_conv(Pams, Terms),maplist(getsid, Links, Atoms),
-	maplist([X,Y]>>rel_templ(X, Atoms, Y), Terms, Out), maplist(writeln, Out).
+	maplist([X,Y]>>rel_templ(X, Atoms, Y), Terms, Out), 
+	myconfig(rel_path, Rel),string_append([Rel, "res.pl"], Rf),
+	open(Rf, append, Fp),maplist([X]>>writeln(Fp,X), Out),close(Fp).
+cmds(srel, [], Pams) :- myconfig(rel_path, Rel),string_append([Rel, "struct.pl"], Rf),
+	rel_pam_conv(Pams, Terms), [Rf], maplist(listing, Terms).
 cmds(srel, Links, Pams) :- rel_pam_conv(Pams, Terms),maplist(struct_ref, Links, Atoms),
-	maplist([X,Y]>>rel_templ(X, Atoms, Y), Terms, Out), maplist(writeln, Out).
+	maplist([X,Y]>>rel_templ(X, Atoms, Y), Terms, Out),
+	myconfig(rel_path, Rel),string_append([Rel, "struct.pl"], Rf),
+	open(Rf, append, Fp),maplist([X]>>writeln(Fp,X), Out),close(Fp).
 cmds(about, D, P) :- maplist(writeln, P),writeln(D).
 cmds(tree, D, P) :- maplist(writeln, P),writeln(D).
 
 % Main
-main([]) :- writeln('print help').
+main([]) :- writeln('print help'), !.
 main(Argv) :- cli_parse(Argv, Pams, [Cmd|Data]),cmds(Cmd, Data, Pams);main([]).
 % for run as application
 :- initialization(main, main).
