@@ -75,8 +75,13 @@ res_safe(Spec, File) :- get_time(Time),round(Time,Utime), res_root(Sid, Path),
 	exists_file(File),copy_file(File, Sid),delete_file(File),link_file(Path, File, symbolic).
 
 % commands of program
-cmds(repl, _, _) :- prolog.
+cmds(repl, _, _) :-
+	myconfig(rel_path, Rel),string_append([Rel, "res.pl"], Rf),[Rf],
+	myconfig(rel_path, Rel),string_append([Rel, "struct.pl"], Sf),[Sf],
+	myconfig(rel_path, Rel),string_append([Rel, "user.pl"], Uf),[Uf],
+	prolog.
 cmds(res, Files, _).
+%cmds(spec, 
 cmds(clone, [Link|[Clone|_]], _) :- read_link(Link, File, _), copy_file(File, Clone).
 cmds(clone, [Link|[]], _) :- file_base_name(Link, Name), cmds(clone, [Link, Name]).
 cmds(del, [Link|_], _) :- delete_file(Link).
