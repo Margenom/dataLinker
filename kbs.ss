@@ -1,7 +1,51 @@
 #!/usr/bin/chezscheme --script
 (import (sqlite3) (srfi s13 strings))
+(load-shared-object "libc.so.6") ;Работает только в linux (возможно всё до CLI_*)
+(define (readlink link-path) 
+	(define _readlink (foreign-procedure "readlink" (string uptr unsigned) long))
+	(define-ftype out-string (array 4096 char))
+	(define PATH_MAX 4096) 
+	(define _out (foreign-alloc (+ 1 PATH_MAX)))
+	(define link-length (_readlink link-path _out PATH_MAX))
+	(define out #f)
+	(if (> link-length 0) (set! out (substring (ftype-pointer->sexpr 
+			(make-ftype-pointer out-string _out)) 0 link-length)))
+	(foreign-free _out) out)
+
+(define (realpath path)
+	(define _realpath (foreign-procedure "realpath" (string uptr) uptr))
+	(define _out (_realpath path 0)) ; when 0 out will be allocated
+	(define-ftype out-string (array 4096 char))
+	(define out (if (= 0 _out) #f (ftype-pointer->sexpr (make-ftype-pointer out-string _out))))
+	(unless  out (foreign-free _out)) out)
+
+;General system functions
+(define-values (CLI_ARGS CLI_PAMS)
+	(let rec ((ost (command-line-arguments)) (args '()) (pams '()))
+		(if (null? ost) (apply values (map reverse (list args pams))) (let* (
+			(head (car ost))
+			(type (char=? (string-ref head 0) #\-)))
+		(rec (cdr ost) (if type args (cons head args)) 
+			(if type (cons (let* (
+				(delim (string-index head #\=))
+				(name (string->symbol (substring head 1 (or delim (string-length head)))))
+				(val (and delim (substring head (+ delim 1) (string-length head)))))
+			(cons name val)) pams) pams))))))
+
+(define (pam pamname) (define pam-pair (assoc pamname CLI_PAMS)) (and pam-pair (cdr pam-pair)))
+(define (clock-seconds) (time-second (current-time)))
+(define (print . X) (let rec((x X)) (or (null? x) (begin (display (car x)) (rec (cdr x))))) (newline))
+
+; система конфигурации как в more
+(define CONFIG '())
+(define (config-append name def-val description)
+	(unless (pam name) (set! CLI_PAMS (cons (cons name def-val) CLI_PAMS)))
+	(set! CONFIG (cons (list name def-val description) CONFIG)))
+
 ;Структура католога
-;/		- системный корень
+(config-append 'structdir (string-append (getenv "PWD") "/test")  "path for your knowlege base system structure")
+;/		- системный корень (этой системы)
+(config-append 'resdir (string-append (or (pam 'structdir) "") "/.res") "path for resurse dir")
 ;/.res/		- ресурсы загруженные пользователем (можно все файлы сделать как замеки)
 ;	- содержит подкаталоги для особых ресурсов (текстовые со сложным форматированием odt+ или бинарные doc+)
 ;	- в корне же обыные или общие ресурсы (текстовые файлы возможно с форматированием но несущественным)
@@ -9,6 +53,7 @@
 ;	- фаил с именем <name.ext> перемещять в каталог .res
 ;	- переименовать его в <uname>
 ;	- cоздать ссылку на <uname> с именем <name.ext> в том месте где был фаил или в корне
+(config-append 'reldir (string-append (or (pam 'structdir) "") "/.rel") "path with reletionship in your file structure")
 ;/.rel/ 	- отношения и категории созданные автоматически
 ;> res.dsv 	- отношения ресурсов общих и специальных неважно 
 ;Зачем это всё - для возможности сохронить отношения в системе при изменении структуры
@@ -25,6 +70,7 @@
 ;		- служат для описания пользовательских обстракций над структурой
 ;		- могут связывать обьекты структуры и ресурсы с обстракциями
 ;		- могут содержать специальные правила для обработки чего либо как надо пользователю
+(config-append 'cachedir (string-append (getenv "HOME") "/.cache/kbs") "path for cache dir")
 ;~/.cache	- кеши будут в каталоге системного кеша  
 ;	- сгинерированные данные на основе грубого перебора всех файлов системы в том числе 
 ;	- индекс необозначенных ссылок - поиск всех названий каждого файла и катогола и ссыкли 
@@ -42,32 +88,6 @@
 ;	- простые файлы (не ссылки и не катологи) - какието пользовательские файлы (система их игнорирует)
 ;		- могут быть например дополнительные файлы для markdown: картинки код примеры результаты
 ;	- ссылок кудато (вне папок .res)- пользовательские ссылки (игнорируються)
-
-(define-values (CLI_ARGS CLI_PAMS)
-	(let rec ((ost (command-line-arguments)) (args '()) (pams '()))
-		(if (null? ost) (apply values (map reverse (list args pams))) (let* (
-			(head (car ost))
-			(type (char=? (string-ref head 0) #\-)))
-		(rec (cdr ost) (if type args (cons head args)) 
-			(if type (cons (let* (
-				(delim (string-index head #\=))
-				(name (string->symbol (substring head 1 (or delim (string-length head)))))
-				(val (and delim (substring head (+ delim 1) (string-length head)))))
-			(cons name val)) pams) pams))))))
-
-(define (print . X) (let rec((x X)) (or (null? x) (begin (display (car x)) (rec (cdr x))))) (newline))
-(define (pam pamname) (define pam-pair (assoc pamname CLI_PAMS)) (and pam-pair (cdr pam-pair)))
-
-(print CLI_ARGS "|" CLI_PAMS)
-
-(define (clock-seconds) (time-second (current-time)))
-
-; система конфигурации как в more 
-(define CONFIG '())
-(define (config-append name def-val description)
-	(set! CONFIG (cons (list name def-val description) CONFIG)))
-
-(config-append 'database #f "path for your time switch database")
 ;(config-append '
 
 (define COMMANDS '())
@@ -124,6 +144,16 @@
 	(map (lambda(k) (print "\t-" (list-ref k 0) "=<" (list-ref k 2) ", def " (list-ref k 1) ">")) CONFIG) 
 	(print "System commands:") 
 	(map (lambda(k) (print "\t" (list-ref k 1))) COMMANDS) 0)
+
+;Require config check
+(print (command-line) "|" CLI_ARGS "|" CLI_PAMS)
+(unless (and (pam 'structdir)) (begin (help-gen) (exit))) 
+
+;Create require directories
+(define (mkdir-if-not-exists dir-path) (and dir-path (unless (file-directory? dir-path) (mkdir dir-path))))
+(mkdir-if-not-exists (pam 'resdir))
+(mkdir-if-not-exists (pam 'cachedir))
+(mkdir-if-not-exists (pam 'reldir))
 
 ; main
 ;(define (alert trunk) (unless trunk (begin (help-gen) (exit)))) 
