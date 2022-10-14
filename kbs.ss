@@ -1,5 +1,5 @@
 #!/usr/bin/chezscheme --script 
-; KnowlegeBaseSystem v0.1: System for organage some information as electronic summary
+; KnowlegeBaseSystem v0.1: System for organase some information as electronic summary
 ; Copyright (C) 2022 Daniil Shvachkin margenom@ya.ru
 ; Released under the terms of the General Public License version 2.0
 
