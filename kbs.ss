@@ -1,7 +1,7 @@
 #!/usr/bin/chezscheme --script 
 ; KnowlegeBaseSystem v0.1: System for organase some information as electronic summary
 ; Copyright (C) 2022 Daniil Shvachkin margenom@ya.ru
-; Released under the terms of the General Public License version 2.0
+; Released under the terms of the GNU General Public License version 2.0
 
 (import (rnrs) (sqlite3) (srfi s13 strings))
 (load-shared-object "libc.so.6") ;Работает только в linux (возможно всё до GSF)
