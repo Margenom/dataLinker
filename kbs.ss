@@ -1,4 +1,8 @@
 #!/usr/bin/chezscheme --script 
+; KnowlegeBaseSystem v0.1: System for organage some information as electronic summary
+; Copyright (C) 2022 Daniil Shvachkin margenom@ya.ru
+; Released under the terms of the General Public License version 2.0
+
 (import (rnrs) (sqlite3) (srfi s13 strings))
 (load-shared-object "libc.so.6") ;Работает только в linux (возможно всё до GSF)
 (define (readlink link-path) 
@@ -101,7 +105,7 @@
 ;(config-append '
 
 (define COMMANDS '())
-(define (commands-append name args-min args-max doc comma) 
+(define (commands-append name args-min args-max comma doc) 
 	(set! COMMANDS (cons (list (symbol->string name) doc args-min args-max comma) COMMANDS)))
 (define (commands-get name argc) (define cmd (assoc name COMMANDS))
 	(print name "|" argc "/" (>= (list-ref cmd 2) argc (list-ref cmd 3))"|" cmd)
@@ -117,24 +121,25 @@
 	(symlink res-path file-path))))
 ;kbs safe <file> - обьявлякт фаил ресурсом системы и заменяет ссылкой на него
 ;kbs safe [-t=<type|def blob>] <file> [.. <fileN>] - будет сохранен в <res root>/<type|blob>/<utime>
-(commands-append 'safe 1 -1 "safe [-t[=<type>, def blob]] <file> [.. <fileN>] - safe file as resurce" (lambda A
+(commands-append 'safe 1 -1 (lambda A
 	(define type (pam 't))
-	(map (lambda(file-path) (!safe file-path (and type (if (boolean? type) "blob" type)))) A)))
+	(map (lambda(file-path) (!safe file-path (and type (if (boolean? type) "blob" type)))) A))
+"safe [-t[=<type>, def blob]] <file> [.. <fileN>] - safe file as resurce")
 
 (define (!clone file-link file-name)
 	(define res-path (read-link file-link))
 	(file-copy res-path file-name))
 ;kbs clone <link> <file> - востановить копию файла из базы
-(commands-append 'clone 2 2 "clone <link> <file> - clone file from resurce" (lambda A
-	(!clone (car A) (cadr A))))
+(commands-append 'clone 2 2 (lambda A (!clone (car A) (cadr A)))
+"clone <link> <file> - clone file from resurce")
 
 (define (!delete file-link)
 	(define res-path (read-link file-link))
 	(delete-file res-path)
 	(if (pam 'clean-link) (print "clean rel")))
 ;kbs delele [-clean-link] <link> - удаляеть из системы (лучше не удолять а изменять)
-(commands-append 'delete 1 1 "delete [-clean-rel] <link> - delete file from resurce" (lambda A
-	(!delete (car A))))
+(commands-append 'delete 1 1 (lambda A (!delete (car A)))
+"delete [-clean-rel] <link> - delete file from resurce")
 ;% структура
 ;cp, mv	- копировать и перенести запись по структуре
 ;tree - посмотреть структурную схему (как tree)
@@ -144,17 +149,18 @@
 	(define Rid (path-rest (path-skip (readlink file-link) (path-last (pam 'resdir)))))
 	(symlink (string-append (pam 'resdir) "/" Rid) file-link))
 ;kbs relink <link name> - востановить ссылку тк ссылка имеет абсолютный путь на фаил при переносе базы она ломаеться
-(commands-append 'relink 1 -1 "relink [-R] <link>|<dir> [ .. <linkN>] - recover link to resurce" (lambda A
-	(map !relink A)))
+(commands-append 'relink 1 -1 (lambda A (map !relink A))
+"relink [-R] <link>|<dir> [ .. <linkN>] - recover link to resurce")
 
 (define (!rel rels . files) 
 	(define reses (string-append ":" (string-join (filter values (map (lambda(f) (readlink f)) files)) ":")))
 	(with-output-to-file (string-append (pam 'reldir) "/res.dsv") (lambda()
 		(map (lambda(r) (display r) (display reses) (newline)) rels)) 'append)) 
 ;kbs rel -<name0> [.. -<nameN>] a [b ..] - связать ресурсы системы (res only)
-(commands-append 'rel 1 -1 "rel -<relname> [.. -<relnameN>] <link> [ .. <linkN>] - make rel with resurses" (lambda A
-	(define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
-	(apply !rel rels A)))
+(commands-append 'rel 1 -1 
+(lambda A (define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
+	(apply !rel rels A))
+"rel -<relname> [.. -<relnameN>] <link> [ .. <linkN>] - make rel with resurses")
 
 (define (!srel . files) 
 	; include files, links, resurses, directories, any in directory structdir
@@ -166,9 +172,10 @@
 	(with-output-to-file (string-append (pam 'reldir) "/struct.dsv") (lambda()
 		(map (lambda(r) (display r) (display reses) (newline)) rels)) 'append))
 ;kbs srel -<name0> [.. -<nameN>] a [b ..] - создать отношение файлов (a,b: link or file or dir)
-(commands-append 'srel 1 -1 "srel -<relname> [.. -<relnameN>] <link> [ .. <linkN>] - make rel with struct objects" (lambda A
-	(define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
-	(apply !srel rels A)))
+(commands-append 'srel 1 -1 
+(lambda A (define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
+	(apply !srel rels A))
+"srel -<relname> [.. -<relnameN>] <link> [ .. <linkN>] - make rel with struct objects")
 ;kbs about [-<name0> [.. -<nameN>]] <link> - посмотреть отношения этого обьекта
 ;(define (!show <link>) 4)
 ;kbs trace <term|link|rel> - просмотр ввиде dot граффа
