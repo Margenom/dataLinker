@@ -3,7 +3,7 @@
 ; Copyright (C) 2022 Daniil Shvachkin margenom@ya.ru
 ; Released under the terms of the GNU General Public License version 2.0
 
-(import (rnrs) (sqlite3) (srfi s13 strings))
+(import (chezscheme) (srfi s13 strings))
 (load-shared-object "libc.so.6") ;Работает только в linux (возможно всё до GSF)
 (define (readlink link-path) 
 	(define _readlink (foreign-procedure "readlink" (string uptr unsigned) long))
@@ -47,9 +47,6 @@
 (define (clock-seconds) (time-second (current-time)))
 (define (print . X) (let rec((x X)) (or (null? x) (begin (display (car x)) (rec (cdr x))))) (newline))
 
-(define (path-skip path skipto) 
-	(if (or (string=? path "") (string=? skipto (path-first path))) path
-		(path-skip (path-rest path) skipto)))
 ; система конфигурации как в more
 (define CONFIG '())
 (define (config-append name def-val description)
@@ -106,71 +103,99 @@
 
 (define COMMANDS '())
 (define (commands-append name args-min args-max comma doc) 
-	(set! COMMANDS (cons (list (symbol->string name) doc args-min args-max comma) COMMANDS)))
+	(set! COMMANDS (cons (list name doc args-min args-max comma) COMMANDS)))
 (define (commands-get name argc) (define cmd (assoc name COMMANDS))
-	(print name "|" argc "/" (>= (list-ref cmd 2) argc (list-ref cmd 3))"|" cmd)
-	(and cmd (>= (list-ref cmd 2) argc (list-ref cmd 3)) (list-ref cmd 4)))
+	(define (args-check count arg-min arg-lim)
+		(define arg-req (<= arg-min count))
+		(and arg-req (or (> 0 arg-lim) (>= (+ arg-min arg-lim) count))))
+	(and cmd (args-check argc (list-ref cmd 2) (list-ref cmd 3)) (list-ref cmd 4)))
+(define (commands-exec args fail) (if (= 0 (length args)) (fail) (let*(
+		(data (cdr args))
+		(cmd (commands-get (string->symbol (car args)) (length data))))
+	(or cmd (fail))
+	(apply cmd data))))
+
 ;Как работать с системой 
 ;% ресурсы системы
 ;	- создает запись в хранилище и ссылку с именем name (лучше не плодить русурсы а повышать их уонкретность и связанность)
 ;kbs push [-e=<editor, def EDITOR>] [-r=<relroot>] <namep0>[ .. <namepN>] - закуск эдитора для создания файла с именем (то что введено но пробелы меняются на _)
 (define (!safe file-path file-type)
-	(define res-path (string-append (pam 'resdir) "/" (or file-type "") (if file-type "/" "") (path-last file-path)))
+	(define res-path (string-append (pam 'resdir) "/" 
+		(or file-type "") (if file-type "/" "") 
+		(number->string (clock-seconds))))
 	(if (file-exists? file-path) (begin
 	(file-copy file-path res-path)
+	(delete-file file-path)
 	(symlink res-path file-path))))
 ;kbs safe <file> - обьявлякт фаил ресурсом системы и заменяет ссылкой на него
 ;kbs safe [-t=<type|def blob>] <file> [.. <fileN>] - будет сохранен в <res root>/<type|blob>/<utime>
-(commands-append 'safe 1 -1 (lambda A
-	(define type (pam 't))
-	(map (lambda(file-path) (!safe file-path (and type (if (boolean? type) "blob" type)))) A))
+(commands-append 'safe 1 -1 (lambda A (let ((type (pam 't)))
+	(map (lambda(file-path) (!safe file-path (and type (if (boolean? type) "blob" type)))) A)))
 "safe [-t[=<type>, def blob]] <file> [.. <fileN>] - safe file as resurce")
 
 (define (!clone file-link file-name)
-	(define res-path (read-link file-link))
+	(define res-path (readlink file-link))
 	(file-copy res-path file-name))
 ;kbs clone <link> <file> - востановить копию файла из базы
-(commands-append 'clone 2 2 (lambda A (!clone (car A) (cadr A)))
+(commands-append 'clone 2 0 !clone
 "clone <link> <file> - clone file from resurce")
 
 (define (!delete file-link)
-	(define res-path (read-link file-link))
+	(define res-path (readlink file-link))
 	(delete-file res-path)
+	(delete-file file-link)
 	(if (pam 'clean-link) (print "clean rel")))
 ;kbs delele [-clean-link] <link> - удаляеть из системы (лучше не удолять а изменять)
-(commands-append 'delete 1 1 (lambda A (!delete (car A)))
+(commands-append 'delete 1 0 (lambda A (!delete (car A)))
 "delete [-clean-rel] <link> - delete file from resurce")
 ;% структура
 ;cp, mv	- копировать и перенести запись по структуре
 ;tree - посмотреть структурную схему (как tree)
+(define (path-skip path skipto) 
+	(if (or (string=? path (path-last path)) (string=? skipto (path-first path))) path
+		(path-skip (path-rest path) skipto)))
+
+(define (file-link->Rid file-path) ; if work dont touch
+	(define link-target (readlink file-path))
+	(and link-target (path-rest (path-skip link-target (path-last (pam 'resdir))))))
+	 
+(define (!relink file-link) (let ((Rid (file-link->Rid file-link))) ; resurse id
+	(and Rid (let ((new-target (string-append (pam 'resdir) "/"  Rid)))
+	(delete-file file-link)
+	(symlink new-target file-link)))))
 ;% отношения ресурсов
-(define (!relink file-link)
-	; resurse id
-	(define Rid (path-rest (path-skip (readlink file-link) (path-last (pam 'resdir)))))
-	(symlink (string-append (pam 'resdir) "/" Rid) file-link))
 ;kbs relink <link name> - востановить ссылку тк ссылка имеет абсолютный путь на фаил при переносе базы она ломаеться
 (commands-append 'relink 1 -1 (lambda A (map !relink A))
 "relink [-R] <link>|<dir> [ .. <linkN>] - recover link to resurce")
 
 (define (!rel rels . files) 
-	(define reses (string-append ":" (string-join (filter values (map (lambda(f) (readlink f)) files)) ":")))
+	(define Rids (string-append ":" (string-join 
+		(filter values (map file-link->Rid files)) ":")))
 	(with-output-to-file (string-append (pam 'reldir) "/res.dsv") (lambda()
-		(map (lambda(r) (display r) (display reses) (newline)) rels)) 'append)) 
+		(map (lambda(r) (display r) (display Rids) (newline)) rels)) 'append)) 
 ;kbs rel -<name0> [.. -<nameN>] a [b ..] - связать ресурсы системы (res only)
 (commands-append 'rel 1 -1 
 (lambda A (define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
 	(apply !rel rels A))
 "rel -<relname> [.. -<relnameN>] <link> [ .. <linkN>] - make rel with resurses")
 
-(define (!srel . files) 
+; path, home is absolute
+(define (path-relative path home)
+	(define (stop? . paths) (fold-right (lambda(k r) (and (string=? k (path-last k)) r)) #t paths))
+	(let rec((p path) (h home))
+		(if (stop? p h) p (apply rec (map path-rest (list p h))))))
+
+(define (!srel rels . files) 
 	; include files, links, resurses, directories, any in directory structdir
-	(define structures (string-append ":" (string-join (map (lambda(Uid) 
+	(define Sids (string-append ":" (string-join (map (lambda(Uid) 
 		; struct id is relative path in struct dir
-		(define Sid (path-skip Uid (path-last (pam 'structdir))))
+		;(define Sid (path-relative (realpath Uid) (pam 'structdir)))
+		;(print Sid) (exit)
 		; universal id is just system file (or maybe url, no work correct only any with no ":")
-		(if (string=? Sid "") Uid Sid)) files)) ":"))
+		;(if (string=? Sid "") Uid Sid)
+		(string-append (getenv "PWD") "/" Uid)) files) ":")))
 	(with-output-to-file (string-append (pam 'reldir) "/struct.dsv") (lambda()
-		(map (lambda(r) (display r) (display reses) (newline)) rels)) 'append))
+		(map (lambda(r) (display r) (display Sids) (newline)) rels)) 'append))
 ;kbs srel -<name0> [.. -<nameN>] a [b ..] - создать отношение файлов (a,b: link or file or dir)
 (commands-append 'srel 1 -1 
 (lambda A (define rels (map car (filter (lambda(r) (boolean? (cdr r))) CLI_PAMS)))
@@ -194,7 +219,7 @@
 	(print "Configns: ") 
 	(map (lambda(k) (print "\t-" (list-ref k 0) "=<" (list-ref k 2) ", def " (list-ref k 1) ">")) CONFIG) 
 	(print "System commands:") 
-	(map (lambda(k) (print "\t" (list-ref k 1))) COMMANDS) 0)
+	(map (lambda(k) (print "\t" (list-ref k 1))) COMMANDS))
 
 ;Require config check
 ;(print (command-line) "|" CLI_ARGS "|" CLI_PAMS)
@@ -202,12 +227,14 @@
 
 ;Create require directories
 (define (mkdir-if-not-exists dir-path) (and dir-path (unless (file-directory? dir-path) (mkdir dir-path))))
+(mkdir-if-not-exists (pam 'structdir))
 (mkdir-if-not-exists (pam 'resdir))
 (mkdir-if-not-exists (pam 'cachedir))
 (mkdir-if-not-exists (pam 'reldir))
 
 ; main
 ;(define (alert trunk) (unless trunk (begin (help-gen) (exit)))) 
-;(define cmd (commands-get (car CLI_ARGS) (length (cdr CLI_ARGS)))) 
+
+(commands-exec CLI_ARGS (lambda() (help-gen) (exit)))
 ;(define DataBase (open-database (pam 'database))) 
 ;(apply cmd DataBase (cdr CLI_ARGS))
